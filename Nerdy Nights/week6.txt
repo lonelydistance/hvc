@@ -1,0 +1,235 @@
+                                ; NintendoAge Nerdy Nights Week 6 - Background part two
+                                
+                                ; modified to assemble with ASM6 (and possibly other) assemblers
+                                
+                                ; away with those .ines directives, this assembler will use a header instead
+                                
+      4E 45 53 1A               byte "NES",$1a                          ; basically "NES" plus a terminator
+      01                        byte $01                                ; 1x16 PRG-ROM block ($c000)
+      01                        byte $01                                ; 1 CHR-ROM block
+      00                        byte $00                                ; dontcare
+      00                        byte $00                                ; dontcare
+      00 00 00 00 00 00 00 00   dsb 8                                   ; 8 bytes padding
+                                
+                                ;;;;;;;;;;;;;;;
+                                
+                                ; away with .bank directives
+                                  .org $C000
+0C000                           RESET:
+0C000 78                          SEI          ; disable IRQs
+0C001 D8                          CLD          ; disable decimal mode
+0C002 A2 40                       LDX #$40
+0C004 8E 17 40                    STX $4017    ; disable APU frame IRQ
+0C007 A2 FF                       LDX #$FF
+0C009 9A                          TXS          ; Set up stack
+0C00A E8                          INX          ; now X = 0
+0C00B 8E 00 20                    STX $2000    ; disable NMI
+0C00E 8E 01 20                    STX $2001    ; disable rendering
+0C011 8E 10 40                    STX $4010    ; disable DMC IRQs
+0C014                           
+0C014                           vblankwait1:       ; First wait for vblank to make sure PPU is ready
+0C014 2C 02 20                    BIT $2002
+0C017 10 FB                       BPL vblankwait1
+0C019                           
+0C019                           clrmem:
+0C019 A9 00                       LDA #$00
+0C01B 95 00                       STA $0000, x
+0C01D 9D 00 01                    STA $0100, x
+0C020 9D 00 03                    STA $0300, x
+0C023 9D 00 04                    STA $0400, x
+0C026 9D 00 05                    STA $0500, x
+0C029 9D 00 06                    STA $0600, x
+0C02C 9D 00 07                    STA $0700, x
+0C02F A9 FE                       LDA #$FE
+0C031 9D 00 02                    STA $0200, x
+0C034 E8                          INX
+0C035 D0 E2                       BNE clrmem
+0C037                              
+0C037                           vblankwait2:      ; Second wait for vblank, PPU is ready after this
+0C037 2C 02 20                    BIT $2002
+0C03A 10 FB                       BPL vblankwait2
+0C03C                           
+0C03C                           
+0C03C                           LoadPalettes:
+0C03C AD 02 20                    LDA $2002             ; read PPU status to reset the high/low latch
+0C03F A9 3F                       LDA #$3F
+0C041 8D 06 20                    STA $2006             ; write the high byte of $3F00 address
+0C044 A9 00                       LDA #$00
+0C046 8D 06 20                    STA $2006             ; write the low byte of $3F00 address
+0C049 A2 00                       LDX #$00              ; start out at 0
+0C04B                           LoadPalettesLoop:
+0C04B BD 00 E0                    LDA palette, x        ; load data from address (palette + the value in x)
+0C04E                                                     ; 1st time through loop it will load palette+0
+0C04E                                                     ; 2nd time through loop it will load palette+1
+0C04E                                                     ; 3rd time through loop it will load palette+2
+0C04E                                                     ; etc
+0C04E 8D 07 20                    STA $2007             ; write to PPU
+0C051 E8                          INX                   ; X = X + 1
+0C052 E0 20                       CPX #$20              ; Compare X to hex $10, decimal 16 - copying 16 bytes = 4 sprites
+0C054 D0 F5                       BNE LoadPalettesLoop  ; Branch to LoadPalettesLoop if compare was Not Equal to zero
+0C056                                                   ; if compare was equal to 32, keep going down
+0C056                           
+0C056                           
+0C056                           
+0C056                           LoadSprites:
+0C056 A2 00                       LDX #$00              ; start at 0
+0C058                           LoadSpritesLoop:
+0C058 BD 20 E0                    LDA sprites, x        ; load data from address (sprites +  x)
+0C05B 9D 00 02                    STA $0200, x          ; store into RAM address ($0200 + x)
+0C05E E8                          INX                   ; X = X + 1
+0C05F E0 18                       CPX #$18              ; Compare X to hex $10, decimal 16
+0C061 D0 F5                       BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
+0C063                                                   ; if compare was equal to 16, keep going down
+0C063                                         
+0C063                                         
+0C063                                         
+0C063                           LoadBackground:
+0C063 AD 02 20                    LDA $2002             ; read PPU status to reset the high/low latch
+0C066 A9 20                       LDA #$20
+0C068 8D 06 20                    STA $2006             ; write the high byte of $2000 address
+0C06B A9 00                       LDA #$00
+0C06D 8D 06 20                    STA $2006             ; write the low byte of $2000 address
+0C070 A2 00                       LDX #$00              ; start out at 0
+0C072                           LoadBackgroundLoop:
+0C072 BD 30 E0                    LDA background, x     ; load data from address (background + the value in x)
+0C075 8D 07 20                    STA $2007             ; write to PPU
+0C078 E8                          INX                   ; X = X + 1
+0C079 E0 A0                       CPX #$A0              ; Compare X to hex $80, decimal 128 - copying 128 bytes
+0C07B D0 F5                       BNE LoadBackgroundLoop  ; Branch to LoadBackgroundLoop if compare was Not Equal to zero
+0C07D                                                   ; if compare was equal to 128, keep going down
+0C07D                                         
+0C07D                                         
+0C07D                           LoadAttribute:
+0C07D AD 02 20                    LDA $2002             ; read PPU status to reset the high/low latch
+0C080 A9 23                       LDA #$23
+0C082 8D 06 20                    STA $2006             ; write the high byte of $23C0 address
+0C085 A9 C0                       LDA #$C0
+0C087 8D 06 20                    STA $2006             ; write the low byte of $23C0 address
+0C08A A2 00                       LDX #$00              ; start out at 0
+0C08C                           LoadAttributeLoop:
+0C08C BD F0 E0                    LDA attribute, x      ; load data from address (attribute + the value in x)
+0C08F 8D 07 20                    STA $2007             ; write to PPU
+0C092 E8                          INX                   ; X = X + 1
+0C093 E0 10                       CPX #$10              ; Compare X to hex $08, decimal 8 - copying 8 bytes
+0C095 D0 F5                       BNE LoadAttributeLoop  ; Branch to LoadAttributeLoop if compare was Not Equal to zero
+0C097                                                   ; if compare was equal to 128, keep going down
+0C097                           
+0C097                           
+0C097                                         
+0C097                                         
+0C097                                         
+0C097 A9 90                       LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+0C099 8D 00 20                    STA $2000
+0C09C                           
+0C09C A9 1E                       LDA #%00011110   ; enable sprites, enable background, no clipping on left side
+0C09E 8D 01 20                    STA $2001
+0C0A1                           
+0C0A1                           Forever:
+0C0A1 4C A1 C0                    JMP Forever     ;jump back to Forever, infinite loop
+0C0A4                             
+0C0A4                            
+0C0A4                           
+0C0A4                           NMI:
+0C0A4 A9 00                       LDA #$00
+0C0A6 8D 03 20                    STA $2003       ; set the low byte (00) of the RAM address
+0C0A9 A9 02                       LDA #$02
+0C0AB 8D 14 40                    STA $4014       ; set the high byte (02) of the RAM address, start the transfer
+0C0AE                           
+0C0AE                           
+0C0AE                           LatchController:
+0C0AE A9 01                       LDA #$01
+0C0B0 8D 16 40                    STA $4016
+0C0B3 A9 00                       LDA #$00
+0C0B5 8D 16 40                    STA $4016       ; tell both the controllers to latch buttons
+0C0B8                           
+0C0B8                           
+0C0B8                           ReadA: 
+0C0B8 AD 16 40                    LDA $4016       ; player 1 - A
+0C0BB 29 01                       AND #%00000001  ; only look at bit 0
+0C0BD F0 09                       BEQ ReadADone   ; branch to ReadADone if button is NOT pressed (0)
+0C0BF                                             ; add instructions here to do something when button IS pressed (1)
+0C0BF AD 03 02                    LDA $0203       ; load sprite X position
+0C0C2 18                          CLC             ; make sure the carry flag is clear
+0C0C3 69 01                       ADC #$01        ; A = A + 1
+0C0C5 8D 03 02                    STA $0203       ; save sprite X position
+0C0C8                           ReadADone:        ; handling this button is done
+0C0C8                             
+0C0C8                           
+0C0C8                           ReadB: 
+0C0C8 AD 16 40                    LDA $4016       ; player 1 - B
+0C0CB 29 01                       AND #%00000001  ; only look at bit 0
+0C0CD F0 09                       BEQ ReadBDone   ; branch to ReadBDone if button is NOT pressed (0)
+0C0CF                                             ; add instructions here to do something when button IS pressed (1)
+0C0CF AD 03 02                    LDA $0203       ; load sprite X position
+0C0D2 38                          SEC             ; make sure carry flag is set
+0C0D3 E9 01                       SBC #$01        ; A = A - 1
+0C0D5 8D 03 02                    STA $0203       ; save sprite X position
+0C0D8                           ReadBDone:        ; handling this button is done
+0C0D8                           
+0C0D8                           
+0C0D8                             ;;This is the PPU clean up section, so rendering the next frame starts properly.
+0C0D8 A9 90                       LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+0C0DA 8D 00 20                    STA $2000
+0C0DD A9 1E                       LDA #%00011110   ; enable sprites, enable background, no clipping on left side
+0C0DF 8D 01 20                    STA $2001
+0C0E2 A9 00                       LDA #$00        ;;tell the ppu there is no background scrolling
+0C0E4 8D 05 20                    STA $2005
+0C0E7 8D 05 20                    STA $2005
+0C0EA                             
+0C0EA 40                          RTI             ; return from interrupt
+0C0EB                            
+0C0EB                           ;;;;;;;;;;;;;;  
+0C0EB                             
+0C0EB                             
+0C0EB                             
+0C0EB                           
+0C0EB 00 00 00 00 00 00 00 00..   .org $E000
+0E000                           palette:
+0E000 22 29 1A 0F 22 36 17 0F..   .db $22,$29,$1A,$0F,  $22,$36,$17,$0F,  $22,$30,$21,$0F,  $22,$27,$17,$0F   ;;background palette
+0E010 22 1C 15 14 22 02 38 3C..   .db $22,$1C,$15,$14,  $22,$02,$38,$3C,  $22,$1C,$15,$14,  $22,$02,$38,$3C   ;;sprite palette
+0E020                           
+0E020                           sprites:
+0E020                                ;vert tile attr horiz
+0E020 80 32 00 80                 .db $80, $32, $00, $80   ;sprite 0
+0E024 80 33 00 88                 .db $80, $33, $00, $88   ;sprite 1
+0E028 88 34 00 80                 .db $88, $34, $00, $80   ;sprite 2
+0E02C 88 35 00 88                 .db $88, $35, $00, $88   ;sprite 3
+0E030                           
+0E030                           
+0E030                           background:
+0E030 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+0E040 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+0E050                           
+0E050 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
+0E060 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+0E070                           
+0E070 24 24 24 24 45 45 24 24..   .db $24,$24,$24,$24,$45,$45,$24,$24,$45,$45,$45,$45,$45,$45,$24,$24  ;;row 3
+0E080 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$53,$54,$24,$24  ;;some brick tops
+0E090                           
+0E090 24 24 24 24 47 47 24 24..   .db $24,$24,$24,$24,$47,$47,$24,$24,$47,$47,$47,$47,$47,$47,$24,$24  ;;row 4
+0E0A0 24 24 24 24 24 24 24 24..   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$55,$56,$24,$24  ;;brick bottoms
+0E0B0                             
+0E0B0 45 45 45 45 45 45 45 45..   .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 5
+0E0C0 45 45 45 45 45 45 45 45..   .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;brick tops
+0E0D0                             
+0E0D0 47 47 47 47 47 47 47 47..   .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 6
+0E0E0 47 47 47 47 47 47 47 47..   .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;brick bottoms
+0E0F0                           
+0E0F0                           attribute:
+0E0F0 00 10 50 10 00 00 00 30..   .db %00000000, %00010000, %01010000, %00010000, %00000000, %00000000, %00000000, %00110000, %11111111, %11111111
+0E0FA                           
+0E0FA 24 24 24 24 47 47 24 24..   .db $24,$24,$24,$24, $47,$47,$24,$24 ,$47,$47,$47,$47, $47,$47,$24,$24 ,$24,$24,$24,$24, $24,$24,$24,$24, $24,$24,$24,$24, $55,$56,$24,$24, $45,$45,$47,$47, $45,$45,$47,$47  ;;brick bottoms
+0E122                           
+0E122                           
+0E122                           
+0E122 00 00 00 00 00 00 00 00..   .org $FFFA     ;first of the three vectors starts here
+0FFFA A4 C0                       .dw NMI        ;when an NMI happens (once per frame if enabled) the 
+0FFFC                                              ;processor will jump to the label NMI:
+0FFFC 00 C0                       .dw RESET      ;when the processor first turns on or is reset, it will jump
+0FFFE                                              ;to the label RESET:
+0FFFE 00 00                       .dw 0          ;external interrupt IRQ is not used in this tutorial
+10000                             
+10000                             
+10000                           ;;;;;;;;;;;;;;  
+10000                           
+10000 03 0F 1F 1F 1C 24 26 66..   .incbin "mario.chr"   ;includes 8KB graphics file from SMB1

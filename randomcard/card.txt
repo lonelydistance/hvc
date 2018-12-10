@@ -1,0 +1,134 @@
+      4E 45 53 1A               byte "NES",$1a                          ; basically "NES" plus a terminator
+      01                        byte $01                                ; 1x16 PRG-ROM block ($c000)
+      01                        byte $01                                ; 1 CHR-ROM block
+      00                        byte $00                                ; dontcare
+      00                        byte $00                                ; dontcare
+      00 00 00 00 00 00 00 00   dsb 8                                   ; 8 bytes padding
+                                
+                                ;;;;;;;;;;;;;;;;var
+                                ;cardnum equ $00
+                                ;cardsui equ $01
+                                ;seed equ $02
+                                
+                                ;;;;;;;;;;;;;;;;init
+                                  .org $C000 
+0C000                           RESET:
+0C000 78                          SEI          ; disable IRQs
+0C001 D8                          CLD          ; disable decimal mode
+0C002 A2 40                       LDX #$40
+0C004 8E 17 40                    STX $4017    ; disable APU frame IRQ
+0C007 A2 FF                       LDX #$FF
+0C009 9A                          TXS          ; Set up stack
+0C00A E8                          INX          ; now X = 0
+0C00B 8E 00 20                    STX $2000    ; disable NMI
+0C00E 8E 01 20                    STX $2001    ; disable rendering
+0C011 8E 10 40                    STX $4010    ; disable DMC IRQs
+0C014                           
+0C014                           vblankwait1:       ; First wait for vblank to make sure PPU is ready
+0C014 2C 02 20                    BIT $2002
+0C017 10 FB                       BPL vblankwait1
+0C019                           
+0C019                           clrmem:
+0C019 A9 00                       LDA #$00
+0C01B 95 00                       STA $0000, x
+0C01D 9D 00 01                    STA $0100, x
+0C020 9D 00 03                    STA $0300, x
+0C023 9D 00 04                    STA $0400, x
+0C026 9D 00 05                    STA $0500, x
+0C029 9D 00 06                    STA $0600, x
+0C02C 9D 00 07                    STA $0700, x
+0C02F A9 FE                       LDA #$FE
+0C031 9D 00 02                    STA $0200, x    ;move all sprites off screen
+0C034 E8                          INX
+0C035 D0 E2                       BNE clrmem
+0C037                              
+0C037                           vblankwait2:      ; Second wait for vblank, PPU is ready after this
+0C037 2C 02 20                    BIT $2002
+0C03A 10 FB                       BPL vblankwait2
+0C03C                             
+0C03C                           ;;;;;;;;;;;program
+0C03C                           
+0C03C                           ;prng
+0C03C                           
+0C03C                           ;prng:
+0C03C                           ;seed = a
+0C03C                           ;ldx #1
+0C03C                           ;lda seed+0
+0C03C                           ;asl
+0C03C                           ;rol seed+1
+0C03C                           ;bcc :+
+0C03C                           ;eor #$2D
+0C03C                           ;dex
+0C03C                           ;bne :--
+0C03C                           ;sta seed+0
+0C03C                           ;sta cardnum
+0C03C                           ;cmp #0
+0C03C                           ;rts
+0C03C                           
+0C03C                           ldPalettes:
+0C03C AD 02 20                    LDA $2002             ; read PPU status to reset the high/low latch
+0C03F A9 3F                       LDA #$3F
+0C041 8D 06 20                    STA $2006             ; write the high byte of $3F00 address
+0C044 A9 00                       LDA #$00
+0C046 8D 06 20                    STA $2006             ; write the low byte of $3F00 address
+0C049 A2 00                       LDX #$00              ; start out at 0
+0C04B                           LoadPalettesLoop:
+0C04B BD 00 E0                    LDA palette, x        ; load data from address (palette + the value in x)
+0C04E                                                     ; 1st time through loop it will load palette+0
+0C04E                                                     ; 2nd time through loop it will load palette+1
+0C04E                                                     ; 3rd time through loop it will load palette+2
+0C04E                                                     ; etc
+0C04E 8D 07 20                    STA $2007             ; write to PPU
+0C051 E8                          INX                   ; X = X + 1
+0C052 E0 20                       CPX #$20              ; Compare X to hex $10, decimal 16 - copying 16 bytes = 4 sprites
+0C054 D0 F5                       BNE LoadPalettesLoop  ; Branch to LoadPalettesLoop if compare was Not Equal to zero
+0C056                                                   ; if compare was equal to 32, keep going down
+0C056                           
+0C056                           LoadSprites:
+0C056 A2 00                       LDX #$00              ; start at 0
+0C058                           LoadSpritesLoop:
+0C058 BD 18 E0                    LDA sprites, x        ; load data from address (sprites +  x)
+0C05B 9D 00 02                    STA $0200, x          ; store into RAM address ($0200 + x)
+0C05E E8                          INX                   ; X = X + 1
+0C05F E0 10                       CPX #$10              ; Compare X to hex $10, decimal 16
+0C061 D0 F5                       BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
+0C063                                                   ; if compare was equal to 16, keep going down
+0C063                                        
+0C063                                         
+0C063                                         
+0C063 A9 90                       LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+0C065 8D 00 20                    STA $2000
+0C068                           
+0C068 A9 1E                       LDA #%00011110   ; enable sprites, enable background, no clipping on left side
+0C06A 8D 01 20                    STA $2001
+0C06D                           
+0C06D                           Forever:
+0C06D 4C 6D C0                    JMP Forever     ;jump back to Forever, infinite loop
+0C070                             
+0C070                            
+0C070                           
+0C070                           NMI:
+0C070 A9 00                       LDA #$00
+0C072 8D 03 20                    STA $2003       ; set the low byte (00) of the RAM address
+0C075 A9 02                       LDA #$02
+0C077 8D 14 40                    STA $4014       ; set the high byte (02) of the RAM address, start the transfer
+0C07A                           ;;;;;;;;;;;
+0C07A 00 00 00 00 00 00 00 00.. 	.org $E000
+0E000                           palette:
+0E000 0F 06 27 26 0F 2D 20 15..   .db $0F,$06,$27,$26,$0F,$2D,$20,$15,$0F,$2D,$20,$15
+0E00C 0F 2D 20 15 0F 2D 20 15..   .db $0F,$2D,$20,$15,$0F,$2D,$20,$15,$0F,$2D,$20,$15
+0E018                           
+0E018                           sprites:
+0E018                                ;vert tile attr horiz
+0E018 80 00 00 80                 .db $80, $00, $00, $80   ;sprite 0
+0E01C 81 01 00 80                 .db $81, $01, $00, $80   ;sprite 1
+0E020 82 00 40 80                 .db $82, $00, %01000000, $80   ;sprite 2
+0E024 80 01 00 81                 .db $80, $01, $00, $81   ;sprite 3
+0E028 81 00 00 81                 .db $81, $00, $00, $81   ;sprite 4
+0E02C 82 00 00 81                 .db $82, $00, $00, $81   ;sprite 5
+0E030 80 01 80 82                 .db $80, $01, %10000000, $82   ;sprite 6
+0E034 81 01 00 82                 .db $81, $01, $00, $82   ;sprite 7
+0E038 82 00 C0 82                 .db $82, $00, %11000000, $82   ;sprite 8
+0E03C                             
+0E03C 00 10 20 40 00 00 00 00.. .incbin "cards.chr"
+1003C                           ;.incbin "cards.nam"

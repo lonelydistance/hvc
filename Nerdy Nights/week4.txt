@@ -1,0 +1,130 @@
+                                ; NintendoAge Nerdy Nights Week 4 - Sprites
+                                
+                                ; modified to assemble with ASM6 (and possibly other) assemblers
+                                
+                                ; away with those .ines directives, this assembler will use a header instead
+                                
+      4E 45 53 1A               byte "NES",$1a                          ; basically "NES" plus a terminator
+      01                        byte $01                                ; 1x16 PRG-ROM block ($c000)
+      01                        byte $01                                ; 1 CHR-ROM block
+      00                        byte $00                                ; dontcare
+      00                        byte $00                                ; dontcare
+      00 00 00 00 00 00 00 00   dsb 8                                   ; 8 bytes padding
+                                
+                                ;;;;;;;;;;;;;;;
+                                
+                                ; away with .bank directives
+                                
+                                  .org $C000 
+0C000                           RESET:
+0C000 78                          SEI          ; disable IRQs
+0C001 D8                          CLD          ; disable decimal mode
+0C002 A2 40                       LDX #$40
+0C004 8E 17 40                    STX $4017    ; disable APU frame IRQ
+0C007 A2 FF                       LDX #$FF
+0C009 9A                          TXS          ; Set up stack
+0C00A E8                          INX          ; now X = 0
+0C00B 8E 00 20                    STX $2000    ; disable NMI
+0C00E 8E 01 20                    STX $2001    ; disable rendering
+0C011 8E 10 40                    STX $4010    ; disable DMC IRQs
+0C014                           
+0C014                           vblankwait1:       ; First wait for vblank to make sure PPU is ready
+0C014 2C 02 20                    BIT $2002
+0C017 10 FB                       BPL vblankwait1
+0C019                           
+0C019                           clrmem:
+0C019 A9 00                       LDA #$00
+0C01B 95 00                       STA $0000, x
+0C01D 9D 00 01                    STA $0100, x
+0C020 9D 00 03                    STA $0300, x
+0C023 9D 00 04                    STA $0400, x
+0C026 9D 00 05                    STA $0500, x
+0C029 9D 00 06                    STA $0600, x
+0C02C 9D 00 07                    STA $0700, x
+0C02F A9 FE                       LDA #$FE
+0C031 9D 00 02                    STA $0200, x    ;move all sprites off screen
+0C034 E8                          INX
+0C035 D0 E2                       BNE clrmem
+0C037                              
+0C037                           vblankwait2:      ; Second wait for vblank, PPU is ready after this
+0C037 2C 02 20                    BIT $2002
+0C03A 10 FB                       BPL vblankwait2
+0C03C                           
+0C03C                           
+0C03C                           
+0C03C                           ; ************** NEW CODE ****************
+0C03C                           LoadPalettes:
+0C03C AD 02 20                    LDA $2002    ; read PPU status to reset the high/low latch
+0C03F A9 3F                       LDA #$3F
+0C041 8D 06 20                    STA $2006    ; write the high byte of $3F00 address
+0C044 A9 00                       LDA #$00
+0C046 8D 06 20                    STA $2006    ; write the low byte of $3F00 address
+0C049 A2 00                       LDX #$00
+0C04B                           LoadPalettesLoop:
+0C04B BD 00 E0                    LDA palette, x        ;load palette byte
+0C04E 8D 07 20                    STA $2007             ;write to PPU
+0C051 E8                          INX                   ;set index to next byte
+0C052 E0 20                       CPX #$20            
+0C054 D0 F5                       BNE LoadPalettesLoop  ;if x = $20, 32 bytes copied, all done
+0C056                           
+0C056                           
+0C056                           
+0C056 A9 80                       LDA #$80
+0C058 8D 00 02                    STA $0200        ; put sprite 0 in center ($80) of screen vert
+0C05B 8D 03 02                    STA $0203        ; put sprite 0 in center ($80) of screen horiz
+0C05E A9 01                       LDA #$01
+0C060 8D 01 02                    STA $0201        ; tile number = 0
+0C063 A9 00                       LDA #$00
+0C065 8D 02 02                    STA $0202        ; color = 0, no flipping
+0C068                             
+0C068                             ;;test multiple sprites
+0C068 A9 40                       LDA #$40
+0C06A 8D 04 02                    STA $0204
+0C06D 8D 07 02                    STA $0207
+0C070 A9 02                       LDA #$02
+0C072 8D 02 02                    STA $0202
+0C075 A9 00                       LDA #$00
+0C077 8D 06 02                    STA $0206
+0C07A                             ;;end test
+0C07A                           
+0C07A A9 80                       LDA #%10000000   ; enable NMI, sprites from Pattern Table 0
+0C07C 8D 00 20                    STA $2000
+0C07F                           
+0C07F A9 10                       LDA #%00010000   ; enable sprites
+0C081 8D 01 20                    STA $2001
+0C084                           
+0C084                           Forever:
+0C084 4C 84 C0                    JMP Forever     ;jump back to Forever, infinite loop
+0C087                             
+0C087                            
+0C087                           
+0C087                           NMI:
+0C087 A9 00                       LDA #$00
+0C089 8D 03 20                    STA $2003  ; set the low byte (00) of the RAM address
+0C08C A9 02                       LDA #$02
+0C08E 8D 14 40                    STA $4014  ; set the high byte (02) of the RAM address, start the transfer
+0C091                             
+0C091 40                          RTI        ; return from interrupt
+0C092                            
+0C092                           ;;;;;;;;;;;;;;  
+0C092                             
+0C092                             
+0C092                             
+0C092                           
+0C092 00 00 00 00 00 00 00 00..   .org $E000
+0E000                           palette:
+0E000 0F 31 32 33 0F 35 36 37..   .db $0F,$31,$32,$33,$0F,$35,$36,$37,$0F,$39,$3A,$3B,$0F,$3D,$3E,$0F
+0E010 0F 1C 15 14 0F 02 38 3C..   .db $0F,$1C,$15,$14,$0F,$02,$38,$3C,$0F,$1C,$15,$14,$0F,$02,$38,$3C
+0E020                           
+0E020                           
+0E020 00 00 00 00 00 00 00 00..   .org $FFFA     ;first of the three vectors starts here
+0FFFA 87 C0                       .dw NMI        ;when an NMI happens (once per frame if enabled) the 
+0FFFC                                              ;processor will jump to the label NMI:
+0FFFC 00 C0                       .dw RESET      ;when the processor first turns on or is reset, it will jump
+0FFFE                                              ;to the label RESET:
+0FFFE 00 00                       .dw 0          ;external interrupt IRQ is not used in this tutorial
+10000                             
+10000                             
+10000                           ;;;;;;;;;;;;;;  
+10000                           
+10000 03 0F 1F 1F 1C 24 26 66..   .incbin "mario.chr"   ;includes 8KB graphics file from SMB1

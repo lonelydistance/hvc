@@ -1,0 +1,161 @@
+                                ;;header
+      4E 45 53 1A                 byte "NES",$1A
+      01                          byte $01
+      01                          byte $01
+      00                          byte $00
+      00                          byte $00
+      00 00 00 00 00 00 00 00     dsb 8
+                                ;;variables
+                                buttons equ $00
+                                
+                                ;;PRG
+                                  .org $C000
+0C000                           
+0C000                           vblank:
+0C000 2C 02 20                    BIT $2002
+0C003 10 FB                       BPL vblank
+0C005 60                          RTS
+0C006                           
+0C006                           LatchController:
+0C006 A9 01                       LDA #$01
+0C008 8D 16 40                    STA $4016
+0C00B A9 00                       LDA #$00
+0C00D 8D 16 40                    STA $4016
+0C010 60                          RTS
+0C011                           ReadController:
+0C011 A9 01                       LDA #$01
+0C013 8D 16 40                    STA $4016
+0C016 A9 00                       LDA #$00
+0C018 8D 16 40                    STA $4016
+0C01B A2 08                       LDX #$08
+0C01D 60                          RTS
+0C01E                           ReadControllerLoop:
+0C01E AD 16 40                    LDA $4016
+0C021 4A                          LSR A           ; Rotate all bits to the right, thus dropping the carry flag
+0C022 26 00                       ROL $00     ; Rotate bits back to the right. Currently unsure why buttons is being called
+0C024 CA                          DEX
+0C025 D0 F7                       BNE ReadControllerLoop
+0C027 60                          RTS
+0C028                             
+0C028                           RESET:
+0C028 78                          SEI
+0C029 D8                          CLD
+0C02A A2 40                       LDX #$40
+0C02C 8E 17 40                    STX $4017
+0C02F A2 FF                       LDX #$FF
+0C031 9A                          TXS
+0C032 E8                          INX
+0C033 8E 00 20                    STX $2000
+0C036 8E 01 20                    STX $2001
+0C039 8E 10 40                    STX $4010
+0C03C                           	
+0C03C 20 00 C0                   JSR vblank
+0C03F                               
+0C03F                             
+0C03F                           clrmem:
+0C03F A9 00                       LDA #$00
+0C041 95 00                       STA $0000, x
+0C043 9D 00 01                    STA $0100, x
+0C046 9D 00 02                    STA $0200, X
+0C049 9D 00 04                    STA $0400, x
+0C04C 9D 00 05                    STA $0500, x
+0C04F 9D 00 06                    STA $0600, x
+0C052 9D 00 07                    STA $0700, x
+0C055 A9 FE                       LDA #$FE
+0C057 9D 00 03                    STA $0300, x
+0C05A E8                          INX
+0C05B D0 E2                       BNE clrmem
+0C05D                               
+0C05D 20 00 C0                    JSR vblank
+0C060                             
+0C060                           ldPal:
+0C060 AD 02 20                    LDA $2002
+0C063 A9 3F                       LDA #$3F
+0C065 8D 06 20                    STA $2006
+0C068 A9 00                       LDA #$00
+0C06A 8D 06 20                    STA $2006
+0C06D A2 00                       LDX #$00
+0C06F                           ldPalLoop:
+0C06F BD 00 E0                    LDA palette, x
+0C072 8D 07 20                    STA $2007
+0C075 E8                          INX
+0C076 E0 20                       CPX #$20
+0C078 D0 F5                       BNE ldPalLoop
+0C07A                           	
+0C07A                           ldSprites:
+0C07A A2 00                       LDX #$00
+0C07C                           ldSpritesLoop:
+0C07C BD 20 E0                    LDA sprites, x
+0C07F 9D 00 02                    STA $0200, x
+0C082 E8                          INX
+0C083 E0 40                       CPX #$40
+0C085 D0 F5                       BNE ldSpritesLoop
+0C087                           	
+0C087 A9 80                       LDA #%10000000	;enable NMI, Patern Table 0
+0C089 8D 00 20                    STA $2000
+0C08C                           	
+0C08C A9 90                       LDA #%10010000	;enable sprites
+0C08E 8D 01 20                    STA $2001	
+0C091                             
+0C091                           ;JSR LatchController  
+0C091                             
+0C091                           ReadA: 
+0C091 20 11 C0                    JSR ReadController	; player 1 - A
+0C094 A5 00                       LDA $00
+0C096 29 01                       AND #%00000001  ; only look at bit 0
+0C098 F0 09                       BEQ ReadADone   ; branch to ReadADone if button is NOT pressed (0)
+0C09A                             				; add instructions here to do something when button IS pressed (1)
+0C09A AD 03 02                    LDA $0203
+0C09D 18                          CLC
+0C09E 69 01                       ADC #$01  ; load sprite X position
+0C0A0 8D 03 02                    STA $0203       ; save sprite X position
+0C0A3                           ReadADone:        ; handling this button is done
+0C0A3                             
+0C0A3 40                        RTI
+0C0A4                           ;;chr rom
+0C0A4 00 00 00 00 00 00 00 00..   .org $E000
+0E000                           palette:
+0E000 0F 06 27 26 0F 2D 20 15..   .db $0F,$06,$27,$26,$0F,$2D,$20,$15,$0F,$2D,$20,$15,$0F,$2D,$20,$15
+0E010 0F 06 27 26 0F 2D 20 15..   .db $0F,$06,$27,$26,$0F,$2D,$20,$15,$0F,$2D,$20,$15,$0F,$2D,$20,$15
+0E020                             
+0E020                           sprites:
+0E020                           	;vert tile attr horiz
+0E020 80 00 00 80                 .db $80, $00, $00, $80  
+0E024 88 02 00 80                 .db $88, $02, $00, $80   
+0E028 90 03 00 80                 .db $90, $03, $00, $80   
+0E02C 80 01 00 88                 .db $80, $01, $00, $88   
+0E030 88 04 00 88                 .db $88, $04, $00, $88  
+0E034 90 01 00 88                 .db $90, $01, $00, $88   
+0E038 80 05 00 90                 .db $80, $05, $00, $90   
+0E03C 88 01 00 90                 .db $88, $01, $00, $90   
+0E040 90 09 00 90                 .db $90, $09, $00, $90
+0E044 80 12 00 98                 .db $80, $12, $00, $98
+0E048 88 08 00 98                 .db $88, $08, $00, $98
+0E04C 90 13 00 98                 .db $90, $13, $00, $98
+0E050 98 01 00 80                 .db $98, $01, $00, $80
+0E054 98 01 00 88                 .db $98, $01, $00, $88
+0E058 98 01 00 90                 .db $98, $01, $00, $90
+0E05C 98 01 00 98                 .db $98, $01, $00, $98
+0E060                             
+0E060                           Forever:
+0E060 4C 60 E0                    JMP Forever
+0E063                           	
+0E063                           NMI:
+0E063 A9 00                       LDA #$00
+0E065 8D 03 20                    STA $2003
+0E068 A9 02                       LDA #$02
+0E06A 8D 14 40                    STA $4014
+0E06D                           	
+0E06D 40                          RTI
+0E06E                             
+0E06E                           
+0E06E                            
+0E06E 00 00 00 00 00 00 00 00..   .org $FFFA
+0FFFA                             
+0FFFA 63 E0                       .dw NMI		;when NMI happens
+0FFFC                             
+0FFFC 28 C0                       .dw RESET	;when processor resets
+0FFFE                             
+0FFFE 00 00                       .dw 0 		
+10000                             
+10000 00 10 20 40 00 00 00 00..   .incbin "cards.chr"

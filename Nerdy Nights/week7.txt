@@ -1,0 +1,403 @@
+                                ; NintendoAge Nerdy Nights Week 7 - Pong one
+                                
+                                ; modified to assemble with ASM6 (and possibly other) assemblers
+                                
+                                ; away with those .ines directives, this assembler will use a header instead
+                                
+      4E 45 53 1A               byte "NES",$1a                          ; basically "NES" plus a terminator
+      01                        byte $01                                ; 1x16 PRG-ROM block ($c000)
+      01                        byte $01                                ; 1 CHR-ROM block
+      00                        byte $00                                ; dontcare
+      00                        byte $00                                ; dontcare
+      00 00 00 00 00 00 00 00   dsb 8                                   ; 8 bytes padding
+                                
+                                ;;;;;;;;;;;;;;;
+                                
+                                ; away with .bank directives
+                                
+                                ;; DECLARE SOME VARIABLES HERE
+                                
+                                ; this is a lot easier to read than a .rs table, right?
+                                ; starting at zeropage $0000
+                                
+                                gamestate  equ $00
+                                ballx      equ $01  ; ball horizontal position
+                                bally      equ $02  ; ball vertical position
+                                ballup     equ $03  ; 1 = ball moving up
+                                balldown   equ $04  ; 1 = ball moving down
+                                ballleft   equ $05  ; 1 = ball moving left
+                                ballright  equ $06  ; 1 = ball moving right
+                                ballspeedx equ $07  ; ball horizontal speed per frame
+                                ballspeedy equ $08  ; ball vertical speed per frame
+                                paddle1ytop   equ $09  ; player 1 paddle top vertical position
+                                paddle2ybot   equ $0a  ; player 2 paddle bottom vertical position
+                                buttons1   equ $0a  ; player 1 gamepad buttons, one bit per button
+                                buttons2   equ $0b  ; player 2 gamepad buttons, one bit per button
+                                score1     equ $0c  ; player 1 score, 0-15
+                                score2     equ $0d  ; player 2 score, 0-15
+                                
+                                
+                                ;; DECLARE SOME CONSTANTS HERE
+                                STATETITLE     = $00  ; displaying title screen
+                                STATEPLAYING   = $01  ; move paddles/ball, check for collisions
+                                STATEGAMEOVER  = $02  ; displaying game over screen
+                                  
+                                RIGHTWALL      = $F4  ; when ball reaches one of these, do something
+                                TOPWALL        = $20
+                                BOTTOMWALL     = $E0
+                                LEFTWALL       = $04
+                                  
+                                PADDLE1X       = $08  ; horizontal position for paddles, doesnt move
+                                PADDLE2X       = $F0
+                                
+                                ;;;;;;;;;;;;;;;;;;
+                                
+                                  .org $C000 
+0C000                           RESET:
+0C000 78                          SEI          ; disable IRQs
+0C001 D8                          CLD          ; disable decimal mode
+0C002 A2 40                       LDX #$40
+0C004 8E 17 40                    STX $4017    ; disable APU frame IRQ
+0C007 A2 FF                       LDX #$FF
+0C009 9A                          TXS          ; Set up stack
+0C00A E8                          INX          ; now X = 0
+0C00B 8E 00 20                    STX $2000    ; disable NMI
+0C00E 8E 01 20                    STX $2001    ; disable rendering
+0C011 8E 10 40                    STX $4010    ; disable DMC IRQs
+0C014                           
+0C014                           vblankwait1:       ; First wait for vblank to make sure PPU is ready
+0C014 2C 02 20                    BIT $2002
+0C017 10 FB                       BPL vblankwait1
+0C019                           
+0C019                           clrmem:
+0C019 A9 00                       LDA #$00
+0C01B 95 00                       STA $0000, x
+0C01D 9D 00 01                    STA $0100, x
+0C020 9D 00 03                    STA $0300, x
+0C023 9D 00 04                    STA $0400, x
+0C026 9D 00 05                    STA $0500, x
+0C029 9D 00 06                    STA $0600, x
+0C02C 9D 00 07                    STA $0700, x
+0C02F A9 FE                       LDA #$FE
+0C031 9D 00 02                    STA $0200, x
+0C034 E8                          INX
+0C035 D0 E2                       BNE clrmem
+0C037                              
+0C037                           vblankwait2:      ; Second wait for vblank, PPU is ready after this
+0C037 2C 02 20                    BIT $2002
+0C03A 10 FB                       BPL vblankwait2
+0C03C                           
+0C03C                           
+0C03C                           LoadPalettes:
+0C03C AD 02 20                    LDA $2002             ; read PPU status to reset the high/low latch
+0C03F A9 3F                       LDA #$3F
+0C041 8D 06 20                    STA $2006             ; write the high byte of $3F00 address
+0C044 A9 00                       LDA #$00
+0C046 8D 06 20                    STA $2006             ; write the low byte of $3F00 address
+0C049 A2 00                       LDX #$00              ; start out at 0
+0C04B                           LoadPalettesLoop:
+0C04B BD 00 E0                    LDA palette, x        ; load data from address (palette + the value in x)
+0C04E                                                     ; 1st time through loop it will load palette+0
+0C04E                                                     ; 2nd time through loop it will load palette+1
+0C04E                                                     ; 3rd time through loop it will load palette+2
+0C04E                                                     ; etc
+0C04E 8D 07 20                    STA $2007             ; write to PPU
+0C051 E8                          INX                   ; X = X + 1
+0C052 E0 20                       CPX #$20              ; Compare X to hex $10, decimal 16 - copying 16 bytes = 4 sprites
+0C054 D0 F5                       BNE LoadPalettesLoop  ; Branch to LoadPalettesLoop if compare was Not Equal to zero
+0C056                                                   ; if compare was equal to 32, keep going down
+0C056                           
+0C056                           
+0C056                             
+0C056                           
+0C056                           
+0C056                           ;;;Set some initial ball stats
+0C056 A9 01                       LDA #$01
+0C058 85 04                       STA $04
+0C05A 85 06                       STA $06
+0C05C A9 00                       LDA #$00
+0C05E 85 03                       STA $03
+0C060 85 05                       STA $05
+0C062                             
+0C062 A9 50                       LDA #$50
+0C064 85 02                       STA $02
+0C066                             
+0C066 A9 80                       LDA #$80
+0C068 85 01                       STA $01
+0C06A                             
+0C06A A9 02                       LDA #$02
+0C06C 85 07                       STA $07
+0C06E 85 08                       STA $08
+0C070                           
+0C070                           
+0C070                           ;;:Set starting game state
+0C070 A9 01                       LDA #STATEPLAYING
+0C072 85 00                       STA $00
+0C074                           
+0C074                           
+0C074                                         
+0C074 A9 90                       LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+0C076 8D 00 20                    STA $2000
+0C079                           
+0C079 A9 1E                       LDA #%00011110   ; enable sprites, enable background, no clipping on left side
+0C07B 8D 01 20                    STA $2001
+0C07E                           
+0C07E                           Forever:
+0C07E 4C 7E C0                    JMP Forever     ;jump back to Forever, infinite loop, waiting for NMI
+0C081                             
+0C081                            
+0C081                           
+0C081                           NMI:
+0C081 A9 00                       LDA #$00
+0C083 8D 03 20                    STA $2003       ; set the low byte (00) of the RAM address
+0C086 A9 02                       LDA #$02
+0C088 8D 14 40                    STA $4014       ; set the high byte (02) of the RAM address, start the transfer
+0C08B                           
+0C08B 20 3E C1                    JSR DrawScore
+0C08E                           
+0C08E                             ;;This is the PPU clean up section, so rendering the next frame starts properly.
+0C08E A9 90                       LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+0C090 8D 00 20                    STA $2000
+0C093 A9 1E                       LDA #%00011110   ; enable sprites, enable background, no clipping on left side
+0C095 8D 01 20                    STA $2001
+0C098 A9 00                       LDA #$00        ;;tell the ppu there is no background scrolling
+0C09A 8D 05 20                    STA $2005
+0C09D 8D 05 20                    STA $2005
+0C0A0                               
+0C0A0                             ;;;all graphics updates done by here, run game engine
+0C0A0                           
+0C0A0                           
+0C0A0 20 3F C1                    JSR ReadController1  ;;get the current button data for player 1
+0C0A3 20 55 C1                    JSR ReadController2  ;;get the current button data for player 2
+0C0A6                             
+0C0A6                           GameEngine:  
+0C0A6 A5 00                       LDA $00
+0C0A8 C9 00                       CMP #STATETITLE
+0C0AA F0 10                       BEQ EngineTitle    ;;game is displaying title screen
+0C0AC                               
+0C0AC A5 00                       LDA $00
+0C0AE C9 02                       CMP #STATEGAMEOVER
+0C0B0 F0 0D                       BEQ EngineGameOver  ;;game is displaying ending screen
+0C0B2                             
+0C0B2 A5 00                       LDA $00
+0C0B4 C9 01                       CMP #STATEPLAYING
+0C0B6 F0 0A                       BEQ EnginePlaying   ;;game is playing
+0C0B8                           GameEngineDone:  
+0C0B8                             
+0C0B8 20 29 C1                    JSR UpdateSprites  ;;set ball/paddle sprites from positions
+0C0BB                           
+0C0BB 40                          RTI             ; return from interrupt
+0C0BC                            
+0C0BC                            
+0C0BC                            
+0C0BC                            
+0C0BC                           ;;;;;;;;
+0C0BC                            
+0C0BC                           EngineTitle:
+0C0BC                             ;;if start button pressed
+0C0BC                             ;;  turn screen off
+0C0BC                             ;;  load game screen
+0C0BC                             ;;  set starting paddle/ball position
+0C0BC                             ;;  go to Playing State
+0C0BC                             ;;  turn screen on
+0C0BC 4C B8 C0                    JMP GameEngineDone
+0C0BF                           
+0C0BF                           ;;;;;;;;; 
+0C0BF                            
+0C0BF                           EngineGameOver:
+0C0BF                             ;;if start button pressed
+0C0BF                             ;;  turn screen off
+0C0BF                             ;;  load title screen
+0C0BF                             ;;  go to Title State
+0C0BF                             ;;  turn screen on 
+0C0BF 4C B8 C0                    JMP GameEngineDone
+0C0C2                            
+0C0C2                           ;;;;;;;;;;;
+0C0C2                            
+0C0C2                           EnginePlaying:
+0C0C2                           
+0C0C2                           MoveBallRight:
+0C0C2 A5 06                       LDA $06
+0C0C4 F0 15                       BEQ MoveBallRightDone   ;;if ballright=0, skip this section
+0C0C6                           
+0C0C6 A5 01                       LDA $01
+0C0C8 18                          CLC
+0C0C9 65 07                       ADC $07        ;;ballx position = ballx + ballspeedx
+0C0CB 85 01                       STA $01
+0C0CD                           
+0C0CD A5 01                       LDA $01
+0C0CF C9 F4                       CMP #RIGHTWALL
+0C0D1 90 08                       BCC MoveBallRightDone      ;;if ball x < right wall, still on screen, skip next section
+0C0D3 A9 00                       LDA #$00
+0C0D5 85 06                       STA $06
+0C0D7 A9 01                       LDA #$01
+0C0D9 85 05                       STA $05         ;;bounce, ball now moving left
+0C0DB                             ;;in real game, give point to player 1, reset ball
+0C0DB                           MoveBallRightDone:
+0C0DB                           
+0C0DB                           
+0C0DB                           MoveBallLeft:
+0C0DB A5 05                       LDA $05
+0C0DD F0 15                       BEQ MoveBallLeftDone   ;;if ballleft=0, skip this section
+0C0DF                           
+0C0DF A5 01                       LDA $01
+0C0E1 38                          SEC
+0C0E2 E5 07                       SBC $07        ;;ballx position = ballx - ballspeedx
+0C0E4 85 01                       STA $01
+0C0E6                           
+0C0E6 A5 01                       LDA $01
+0C0E8 C9 04                       CMP #LEFTWALL
+0C0EA B0 08                       BCS MoveBallLeftDone      ;;if ball x > left wall, still on screen, skip next section
+0C0EC A9 01                       LDA #$01
+0C0EE 85 06                       STA $06
+0C0F0 A9 00                       LDA #$00
+0C0F2 85 05                       STA $05         ;;bounce, ball now moving right
+0C0F4                             ;;in real game, give point to player 2, reset ball
+0C0F4                           MoveBallLeftDone:
+0C0F4                           
+0C0F4                           
+0C0F4                           MoveBallUp:
+0C0F4 A5 03                       LDA $03
+0C0F6 F0 15                       BEQ MoveBallUpDone   ;;if ballup=0, skip this section
+0C0F8                           
+0C0F8 A5 02                       LDA $02
+0C0FA 38                          SEC
+0C0FB E5 08                       SBC $08        ;;bally position = bally - ballspeedy
+0C0FD 85 02                       STA $02
+0C0FF                           
+0C0FF A5 02                       LDA $02
+0C101 C9 20                       CMP #TOPWALL
+0C103 B0 08                       BCS MoveBallUpDone      ;;if ball y > top wall, still on screen, skip next section
+0C105 A9 01                       LDA #$01
+0C107 85 04                       STA $04
+0C109 A9 00                       LDA #$00
+0C10B 85 03                       STA $03         ;;bounce, ball now moving down
+0C10D                           MoveBallUpDone:
+0C10D                           
+0C10D                           
+0C10D                           MoveBallDown:
+0C10D A5 04                       LDA $04
+0C10F F0 15                       BEQ MoveBallDownDone   ;;if ballup=0, skip this section
+0C111                           
+0C111 A5 02                       LDA $02
+0C113 18                          CLC
+0C114 65 08                       ADC $08        ;;bally position = bally + ballspeedy
+0C116 85 02                       STA $02
+0C118                           
+0C118 A5 02                       LDA $02
+0C11A C9 E0                       CMP #BOTTOMWALL
+0C11C 90 08                       BCC MoveBallDownDone      ;;if ball y < bottom wall, still on screen, skip next section
+0C11E A9 00                       LDA #$00
+0C120 85 04                       STA $04
+0C122 A9 01                       LDA #$01
+0C124 85 03                       STA $03         ;;bounce, ball now moving down
+0C126                           MoveBallDownDone:
+0C126                           
+0C126                           MovePaddleUp:
+0C126                             ;;if up button pressed
+0C126                             ;;  if paddle top > top wall
+0C126                             ;;    move paddle top and bottom up
+0C126                           MovePaddleUpDone:
+0C126                           
+0C126                           MovePaddleDown:
+0C126                             ;;if down button pressed
+0C126                             ;;  if paddle bottom < bottom wall
+0C126                             ;;    move paddle top and bottom down
+0C126                           MovePaddleDownDone:
+0C126                             
+0C126                           CheckPaddleCollision:
+0C126                             ;;if ball x < paddle1x
+0C126                             ;;  if ball y > paddle y top
+0C126                             ;;    if ball y < paddle y bottom
+0C126                             ;;      bounce, ball now moving left
+0C126                           CheckPaddleCollisionDone:
+0C126                           
+0C126 4C B8 C0                    JMP GameEngineDone
+0C129                            
+0C129                            
+0C129                            
+0C129                            
+0C129                           UpdateSprites:
+0C129 A5 02                       LDA $02  ;;update all ball sprite info
+0C12B 8D 00 02                    STA $0200
+0C12E                             
+0C12E A9 30                       LDA #$30
+0C130 8D 01 02                    STA $0201
+0C133                             
+0C133 A9 00                       LDA #$00
+0C135 8D 02 02                    STA $0202
+0C138                             
+0C138 A5 01                       LDA $01
+0C13A 8D 03 02                    STA $0203
+0C13D                             
+0C13D                             ;;update paddle sprites
+0C13D 60                          RTS
+0C13E                            
+0C13E                            
+0C13E                           DrawScore:
+0C13E                             ;;draw score on screen using background tiles
+0C13E                             ;;or using many sprites
+0C13E 60                          RTS
+0C13F                            
+0C13F                            
+0C13F                            
+0C13F                           ReadController1:
+0C13F A9 01                       LDA #$01
+0C141 8D 16 40                    STA $4016
+0C144 A9 00                       LDA #$00
+0C146 8D 16 40                    STA $4016
+0C149 A2 08                       LDX #$08
+0C14B                           ReadController1Loop:
+0C14B AD 16 40                    LDA $4016
+0C14E 4A                          LSR A            ; bit0 -> Carry
+0C14F 26 0A                       ROL $0a     ; bit0 <- Carry
+0C151 CA                          DEX
+0C152 D0 F7                       BNE ReadController1Loop
+0C154 60                          RTS
+0C155                             
+0C155                           ReadController2:
+0C155 A9 01                       LDA #$01
+0C157 8D 16 40                    STA $4016
+0C15A A9 00                       LDA #$00
+0C15C 8D 16 40                    STA $4016
+0C15F A2 08                       LDX #$08
+0C161                           ReadController2Loop:
+0C161 AD 17 40                    LDA $4017
+0C164 4A                          LSR A            ; bit0 -> Carry
+0C165 26 0B                       ROL $0b     ; bit0 <- Carry
+0C167 CA                          DEX
+0C168 D0 F7                       BNE ReadController2Loop
+0C16A 60                          RTS  
+0C16B                             
+0C16B                             
+0C16B                               
+0C16B                                   
+0C16B                           ;;;;;;;;;;;;;;  
+0C16B                             
+0C16B                             
+0C16B                           
+0C16B 00 00 00 00 00 00 00 00..   .org $E000
+0E000                           palette:
+0E000 22 29 1A 0F 22 36 17 0F..   .db $22,$29,$1A,$0F,  $22,$36,$17,$0F,  $22,$30,$21,$0F,  $22,$27,$17,$0F   ;;background palette
+0E010 22 1C 15 14 22 02 38 3C..   .db $22,$1C,$15,$14,  $22,$02,$38,$3C,  $22,$1C,$15,$14,  $22,$02,$38,$3C   ;;sprite palette
+0E020                           
+0E020                           sprites:
+0E020                                ;vert tile attr horiz
+0E020 80 32 00 80                 .db $80, $32, $00, $80   ;sprite 0
+0E024 80 33 00 88                 .db $80, $33, $00, $88   ;sprite 1
+0E028 88 34 00 80                 .db $88, $34, $00, $80   ;sprite 2
+0E02C 88 35 00 88                 .db $88, $35, $00, $88   ;sprite 3
+0E030                           
+0E030                           
+0E030                           
+0E030 00 00 00 00 00 00 00 00..   .org $FFFA     ;first of the three vectors starts here
+0FFFA 81 C0                       .dw NMI        ;when an NMI happens (once per frame if enabled) the 
+0FFFC                                              ;processor will jump to the label NMI:
+0FFFC 00 C0                       .dw RESET      ;when the processor first turns on or is reset, it will jump
+0FFFE                                              ;to the label RESET:
+0FFFE 00 00                       .dw 0          ;external interrupt IRQ is not used in this tutorial
+10000                             
+10000                             
+10000                           ;;;;;;;;;;;;;;  
+10000                           
+10000 03 0F 1F 1F 1C 24 26 66..   .incbin "mario.chr"   ;includes 8KB graphics file from SMB1
